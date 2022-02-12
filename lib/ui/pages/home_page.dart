@@ -1,100 +1,71 @@
-import 'dart:async';
+import 'dart:math';
 
-import 'package:camera/camera.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:webview_camera_maps_playback_flutter/ui/tabs/app_camera.dart';
-import 'package:webview_camera_maps_playback_flutter/ui/tabs/app_gallery.dart';
+import 'package:video_player/video_player.dart';
+
+import 'package:webview_camera_maps_playback_flutter/models/movies.dart';
+import 'package:webview_camera_maps_playback_flutter/ui/widgets/video_controls.dart';
 
 class HomePage extends StatefulWidget {
-  const HomePage({Key? key}) : super(key: key);
+  final Movies movies;
+
+  const HomePage({
+    Key? key,
+    required this.movies,
+  }) : super(key: key);
 
   @override
   State<HomePage> createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage>
-    with SingleTickerProviderStateMixin {
-  late TabController tabController;
-  ValueNotifier<int> currentTabIndex = ValueNotifier(0);
-
-  late List<CameraDescription> cameras;
-  CameraController? controller;
-  ValueNotifier<List<XFile>> images = ValueNotifier([]);
+class _HomePageState extends State<HomePage> {
+  late final Video video;
+  late VideoPlayerController _controller;
 
   @override
   void initState() {
     super.initState();
-    tabController = TabController(length: 2, vsync: this);
-    tabController.addListener(() {
-      currentTabIndex.value = tabController.index;
-    });
-    unawaited(initCamera());
-  }
-
-  Future<void> initCamera() async {
-    cameras = await availableCameras();
-    controller = CameraController(cameras[0], ResolutionPreset.max);
-    controller?.initialize().then((_) {
-      if (!mounted) {
-        return;
-      }
+    video = widget.movies.videos.first;
+    // video =
+    //     widget.movies.videos[Random().nextInt(widget.movies.videos.length - 1)];
+    _controller = VideoPlayerController.network(video.sources.first);
+    _controller.initialize().then((value) {
       setState(() {});
+      WidgetsBinding.instance!.addPostFrameCallback((_) {
+        if (!kIsWeb) _controller.play();
+      });
     });
   }
 
   @override
   void dispose() {
-    tabController.dispose();
-    controller?.dispose();
+    _controller.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: SafeArea(
-        child: TabBarView(
-          physics: const NeverScrollableScrollPhysics(),
-          key: UniqueKey(),
-          controller: tabController,
-          children: [
-            AppCamera(
-              controller: controller,
-              addImage: _addImage,
-            ),
-            ValueListenableBuilder<List<XFile>>(
-              valueListenable: images,
-              builder: (context, value, _) => AppGallery(images: value),
-            ),
-          ],
-        ),
+      appBar: AppBar(
+        title: Text(video.title),
+        centerTitle: true,
       ),
-      bottomNavigationBar: ValueListenableBuilder<int>(
-        valueListenable: currentTabIndex,
-        builder: (context, value, _) {
-          return BottomNavigationBar(
-            onTap: (index) {
-              tabController.index = index;
-              currentTabIndex.value = index;
-            },
-            currentIndex: value,
-            items: const [
-              BottomNavigationBarItem(
-                icon: Icon(Icons.camera),
-                label: 'Camera',
-              ),
-              BottomNavigationBarItem(
-                icon: Icon(Icons.image),
-                label: 'Gallery',
-              ),
-            ],
-          );
-        },
+      body: SafeArea(
+        child: _controller.value.isInitialized
+            ? Center(
+                child: AspectRatio(
+                  aspectRatio: _controller.value.aspectRatio,
+                  child: Stack(
+                    children: [
+                      VideoPlayer(_controller),
+                      VideoControls(controller: _controller),
+                    ],
+                  ),
+                ),
+              )
+            : Container(),
       ),
     );
-  }
-
-  void _addImage(XFile image) {
-    images.value = [...images.value, image];
   }
 }

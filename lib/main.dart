@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:webview_camera_maps_playback_flutter/models/movies.dart';
+import 'package:webview_camera_maps_playback_flutter/services/fetch_file.dart';
 import 'package:webview_camera_maps_playback_flutter/ui/pages/home_page.dart';
 
 void main() {
@@ -16,7 +18,17 @@ class MyApp extends StatelessWidget {
         primarySwatch: Colors.blue,
       ),
       debugShowCheckedModeBanner: false,
-      home: const HomePage(),
+      home: FutureBuilder(
+        future: fetchFileFromAssets('assets/json/movies.json'),
+        builder: (BuildContext context, AsyncSnapshot snapshot) {
+          if (snapshot.hasData) {
+            return HomePage(
+              movies: Movies.fromJson(snapshot.data),
+            );
+          }
+          return const SizedBox.shrink();
+        },
+      ),
     );
   }
 }
