@@ -1,7 +1,9 @@
-import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:webview_camera_maps_playback_flutter/ui/widgets/search_bar.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({Key? key}) : super(key: key);
@@ -11,194 +13,177 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  final Completer<GoogleMapController> _controller = Completer();
+  final GlobalKey webViewKey = GlobalKey();
 
-  static const CameraPosition _kGooglePlex = CameraPosition(
-    target: LatLng(37.42796133580664, -122.085749655962),
-    zoom: 14.4746,
+  InAppWebViewController? webViewController;
+  InAppWebViewGroupOptions options = InAppWebViewGroupOptions(
+    crossPlatform: InAppWebViewOptions(
+      useShouldOverrideUrlLoading: true,
+      mediaPlaybackRequiresUserGesture: false,
+    ),
+    android: AndroidInAppWebViewOptions(
+      useHybridComposition: true,
+    ),
+    ios: IOSInAppWebViewOptions(
+      allowsInlineMediaPlayback: true,
+    ),
   );
 
-  double zoomValue = 3.0;
+  late PullToRefreshController pullToRefreshController;
+  String url = "";
+  double progress = 0;
+  bool canGoBack = false;
+  bool canGoForward = false;
 
-  late CameraPosition _currentCameraPosition;
+  final TextEditingController urlController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
-    _currentCameraPosition = _kGooglePlex;
-    zoomValue = _kGooglePlex.zoom;
+    pullToRefreshController = PullToRefreshController(
+      options: PullToRefreshOptions(
+        color: Colors.blue,
+      ),
+      onRefresh: () async {
+        if (Platform.isAndroid) {
+          webViewController?.reload();
+        } else if (Platform.isIOS) {
+          webViewController?.loadUrl(
+            urlRequest: URLRequest(url: await webViewController?.getUrl()),
+          );
+        }
+      },
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Stack(
-        fit: StackFit.loose,
-        children: [
-          GoogleMap(
-            mapType: MapType.hybrid,
-            initialCameraPosition: _kGooglePlex,
-            zoomControlsEnabled: false,
-            onMapCreated: (GoogleMapController controller) {
-              _controller.complete(controller);
-            },
-            onCameraMove: (CameraPosition position) {
-              _currentCameraPosition = position;
-              setState(() {
-                zoomValue = position.zoom;
-              });
-            },
-          ),
-          Align(
-            alignment: Alignment.bottomCenter,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              mainAxisSize: MainAxisSize.max,
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.all(8.0),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.8),
-                      borderRadius: BorderRadius.circular(16.0),
-                    ),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(
-                          onPressed: _moveUp,
-                          icon: const Icon(Icons.arrow_upward),
-                        ),
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            IconButton(
-                              onPressed: _moveLeft,
-                              icon: const Icon(Icons.arrow_back),
-                            ),
-                            IconButton(
-                              onPressed: _moveToStart,
-                              icon: const Icon(Icons.location_on),
-                            ),
-                            IconButton(
-                              onPressed: _moveRight,
-                              icon: const Icon(Icons.arrow_forward),
-                            ),
-                          ],
-                        ),
-                        IconButton(
-                          onPressed: _moveDown,
-                          icon: const Icon(Icons.arrow_downward),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.all(8.0),
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.8),
-                        ),
-                        // width: 40.0,
-                        height: 200.0,
-                        child: RotatedBox(
-                          quarterTurns: 3,
-                          child: Slider.adaptive(
-                            max: 21.0,
-                            min: 3.0,
-                            value: zoomValue,
-                            onChanged: (value) => _zoomTo(value),
-                          ),
-                        ),
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.all(8.0),
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.8),
-                          borderRadius: BorderRadius.circular(16.0),
-                        ),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            IconButton(
-                              onPressed: _zoomIn,
-                              icon: const Icon(Icons.zoom_in),
-                            ),
-                            IconButton(
-                              onPressed: _zoomOut,
-                              icon: const Icon(Icons.zoom_out),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
+      body: SafeArea(
+        child: Column(
+          children: [
+            SearchBar(
+              back: _back,
+              canGoBack: canGoBack,
+              forward: _forward,
+              canGoForward: canGoForward,
+              refresh: _refresh,
+              isLoading: progress != 1.0,
+              loadPage: _loadPage,
+              textFieldController: urlController,
             ),
-          ),
-        ],
+            Expanded(
+              child: Stack(
+                children: [
+                  InAppWebView(
+                    key: webViewKey,
+                    initialUrlRequest: URLRequest(
+                      url: Uri.parse("https://flutter.dev/"),
+                    ),
+                    initialOptions: options,
+                    pullToRefreshController: pullToRefreshController,
+                    onWebViewCreated: (controller) {
+                      webViewController = controller;
+                    },
+                    onLoadStart: (controller, url) {
+                      setState(() async {
+                        this.url = url.toString();
+                        urlController.text = this.url;
+                        canGoBack =
+                            await webViewController?.canGoBack() ?? false;
+                        canGoForward =
+                            await webViewController?.canGoForward() ?? false;
+                      });
+                    },
+                    androidOnPermissionRequest:
+                        (controller, origin, resources) async {
+                      return PermissionRequestResponse(
+                          resources: resources,
+                          action: PermissionRequestResponseAction.GRANT);
+                    },
+                    shouldOverrideUrlLoading:
+                        (controller, navigationAction) async {
+                      var uri = navigationAction.request.url!;
+
+                      if (![
+                        "http",
+                        "https",
+                        "file",
+                        "chrome",
+                        "data",
+                        "javascript",
+                        "about"
+                      ].contains(uri.scheme)) {
+                        if (await canLaunch(url)) {
+                          // Launch the App
+                          await launch(
+                            url,
+                          );
+                          // and cancel the request
+                          return NavigationActionPolicy.CANCEL;
+                        }
+                      }
+
+                      return NavigationActionPolicy.ALLOW;
+                    },
+                    onLoadStop: (controller, url) async {
+                      pullToRefreshController.endRefreshing();
+                      setState(() {
+                        this.url = url.toString();
+                        urlController.text = this.url;
+                      });
+                    },
+                    onLoadError: (controller, url, code, message) {
+                      pullToRefreshController.endRefreshing();
+                    },
+                    onProgressChanged: (controller, progress) {
+                      if (progress == 100) {
+                        pullToRefreshController.endRefreshing();
+                      }
+                      setState(() {
+                        this.progress = progress / 100;
+                        urlController.text = url;
+                      });
+                    },
+                    onUpdateVisitedHistory: (controller, url, androidIsReload) {
+                      setState(() {
+                        this.url = url.toString();
+                        urlController.text = this.url;
+                      });
+                    },
+                    onConsoleMessage: (controller, consoleMessage) {
+                      print(consoleMessage);
+                    },
+                  ),
+                  progress < 1.0
+                      ? LinearProgressIndicator(value: progress)
+                      : Container(),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  Future<void> _moveToStart() async {
-    final GoogleMapController controller = await _controller.future;
-    controller.animateCamera(CameraUpdate.newCameraPosition(_kGooglePlex));
+  void _loadPage(String value) {
+    var url = Uri.parse(value);
+    if (url.scheme.isEmpty) {
+      url = Uri.parse("https://www.google.com/search?q=" + value);
+    }
+    webViewController?.loadUrl(urlRequest: URLRequest(url: url));
   }
 
-  Future<void> _zoomIn() async {
-    final GoogleMapController controller = await _controller.future;
-    controller.animateCamera(CameraUpdate.zoomIn());
+  void _back() {
+    webViewController?.goBack();
   }
 
-  Future<void> _zoomOut() async {
-    final GoogleMapController controller = await _controller.future;
-    controller.animateCamera(CameraUpdate.zoomOut());
+  void _forward() {
+    webViewController?.goForward();
   }
 
-  Future<void> _zoomTo(double value) async {
-    final GoogleMapController controller = await _controller.future;
-    controller.animateCamera(CameraUpdate.zoomTo(value));
-  }
-
-  Future<void> _moveUp() async {
-    final GoogleMapController controller = await _controller.future;
-    controller.animateCamera(CameraUpdate.newLatLng(LatLng(
-      _currentCameraPosition.target.latitude + zoomValue * zoomValue * 0.01,
-      _currentCameraPosition.target.longitude,
-    )));
-  }
-
-  Future<void> _moveLeft() async {
-    final GoogleMapController controller = await _controller.future;
-    controller.animateCamera(CameraUpdate.newLatLng(LatLng(
-      _currentCameraPosition.target.latitude,
-      _currentCameraPosition.target.longitude - zoomValue * 0.01,
-    )));
-  }
-
-  Future<void> _moveRight() async {
-    final GoogleMapController controller = await _controller.future;
-    controller.animateCamera(CameraUpdate.newLatLng(LatLng(
-      _currentCameraPosition.target.latitude,
-      _currentCameraPosition.target.longitude + zoomValue * 0.01,
-    )));
-  }
-
-  Future<void> _moveDown() async {
-    final GoogleMapController controller = await _controller.future;
-    controller.animateCamera(CameraUpdate.newLatLng(LatLng(
-      _currentCameraPosition.target.latitude - zoomValue * 0.01,
-      _currentCameraPosition.target.longitude,
-    )));
+  void _refresh() {
+    webViewController?.reload();
   }
 }
